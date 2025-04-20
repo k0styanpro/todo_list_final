@@ -8,10 +8,11 @@ import (
 	"time"
 )
 
-// GET /api/nextdate?now=...&date=...&repeat=...
+// nextDateHandler обрабатывает GET /api/nextdate?now=...&date=...&repeat=...
 func nextDateHandler(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
+	// Парсим параметр now или берём текущее время
 	nowStr := q.Get("now")
 	var now time.Time
 	var err error
@@ -20,23 +21,26 @@ func nextDateHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		now, err = time.Parse(dateLayout, nowStr)
 		if err != nil {
-			http.Error(w, "invalid now date: "+err.Error(), http.StatusBadRequest)
+			http.Error(w, "invalid now: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 	}
 
+	// Обязательный параметр date
 	dstart := q.Get("date")
 	if dstart == "" {
-		http.Error(w, "missing date parameter", http.StatusBadRequest)
+		http.Error(w, "missing date", http.StatusBadRequest)
 		return
 	}
 
+	// Повторение может быть пустым — тогда просто возвращаем пустую строку
 	repeat := q.Get("repeat")
 	if strings.TrimSpace(repeat) == "" {
-		http.Error(w, "empty repeat rule", http.StatusBadRequest)
+		fmt.Fprint(w, "")
 		return
 	}
 
+	// Иначе вычисляем следующую дату
 	next, err := NextDate(now, dstart, repeat)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -45,46 +49,43 @@ func nextDateHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, next)
 }
 
-// NextDate поддерживает базовые правила d N и y.
+// NextDate возвращает дату следующего выполнения задачи (> now) в формате YYYYMMDD.
+// Поддерживаются правила "d N" и "y".
 func NextDate(now time.Time, dstart, repeat string) (string, error) {
-	date, err := time.Parse(dateLayout, dstart)
+	start, err := time.Parse(dateLayout, dstart)
 	if err != nil {
 		return "", fmt.Errorf("invalid start date: %w", err)
 	}
-
-	afterNow := func(t time.Time) bool {
-		y1, m1, d1 := t.Date()
-		y2, m2, d2 := now.Date()
-		base := time.Date(y2, m2, d2, 0, 0, 0, 0, now.Location())
-		cur := time.Date(y1, m1, d1, 0, 0, 0, 0, now.Location())
-		return cur.After(base)
-	}
+	// Сравниваем только по календарным датам
+	base := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
 	parts := strings.Fields(repeat)
 	switch parts[0] {
 	case "d":
 		if len(parts) != 2 {
-			return "", fmt.Errorf("invalid d rule format")
+			return "", fmt.Errorf("invalid d format")
 		}
 		days, err := strconv.Atoi(parts[1])
 		if err != nil || days < 1 || days > 400 {
 			return "", fmt.Errorf("invalid d interval")
 		}
-		for !afterNow(date) {
-			date = date.AddDate(0, 0, days)
+		next := start.AddDate(0, 0, days)
+		for !next.After(base) {
+			next = next.AddDate(0, 0, days)
 		}
+		return next.Format(dateLayout), nil
 
 	case "y":
 		if len(parts) != 1 {
-			return "", fmt.Errorf("invalid y rule format")
+			return "", fmt.Errorf("invalid y format")
 		}
-		for !afterNow(date) {
-			date = date.AddDate(1, 0, 0)
+		next := start.AddDate(1, 0, 0)
+		for !next.After(base) {
+			next = next.AddDate(1, 0, 0)
 		}
+		return next.Format(dateLayout), nil
 
 	default:
-		return "", fmt.Errorf("unsupported repeat rule: %q", parts[0])
+		return "", fmt.Errorf("unsupported repeat: %q", parts[0])
 	}
-
-	return date.Format(dateLayout), nil
 }

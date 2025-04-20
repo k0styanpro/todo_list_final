@@ -9,10 +9,7 @@ import (
 	"github.com/k0styanpro/todo_list_final/pkg/db"
 )
 
-// POST /api/task
 func addTaskHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-
 	var task db.Task
 	if err := json.NewDecoder(r.Body).Decode(&task); err != nil {
 		writeJSON(w, map[string]string{"error": "invalid JSON: " + err.Error()})
@@ -22,11 +19,10 @@ func addTaskHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]string{"error": "title is required"})
 		return
 	}
-	if err := prepareDate(&task); err != nil {
+	if err := normalizeDate(&task); err != nil {
 		writeJSON(w, map[string]string{"error": err.Error()})
 		return
 	}
-
 	id, err := db.AddTask(&task)
 	if err != nil {
 		writeJSON(w, map[string]string{"error": "db error: " + err.Error()})
@@ -35,31 +31,35 @@ func addTaskHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{"id": id})
 }
 
-// Вспомогательная коррекция даты, аналогично add и update.
-func prepareDate(task *db.Task) error {
+// normalizeDate:
+// 1) Если task.Date пустой — ставим сегодня.
+// 2) Парсим task.Date.
+// 3) Сравниваем только даты (без часов).
+// 4) Если date < today и есть repeat — смещаем на NextDate.
+// 5) Если date < today и нет repeat — ставим сегодня.
+func normalizeDate(task *db.Task) error {
 	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
 	if task.Date == "" {
 		task.Date = now.Format(dateLayout)
 	}
+
 	t, err := time.Parse(dateLayout, task.Date)
 	if err != nil {
-		return fmt.Errorf("invalid date format: %w", err)
+		return fmt.Errorf("invalid date: %w", err)
 	}
+	tDate := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, now.Location())
 
-	if !t.After(now) && task.Repeat != "" {
-		next, err := NextDate(now, task.Date, task.Repeat)
-		if err != nil {
-			return fmt.Errorf("invalid repeat rule: %w", err)
-		}
-		task.Date = next
-	}
-	if !t.After(now) && task.Repeat == "" {
-		task.Date = now.Format(dateLayout)
-	}
-	if t.After(now) && task.Repeat != "" {
-		if _, err := NextDate(now, task.Date, task.Repeat); err != nil {
-			return fmt.Errorf("invalid repeat rule: %w", err)
+	if tDate.Before(today) {
+		if task.Repeat != "" {
+			next, err := NextDate(now, task.Date, task.Repeat)
+			if err != nil {
+				return fmt.Errorf("invalid repeat: %w", err)
+			}
+			task.Date = next
+		} else {
+			task.Date = now.Format(dateLayout)
 		}
 	}
 	return nil

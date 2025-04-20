@@ -2,35 +2,41 @@ package api
 
 import (
 	"encoding/json"
-	"net/http"
-
 	"github.com/k0styanpro/todo_list_final/pkg/db"
+	"net/http"
 )
 
 // PUT /api/task
 func updateTaskHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-
 	var task db.Task
 	if err := json.NewDecoder(r.Body).Decode(&task); err != nil {
 		writeJSON(w, map[string]string{"error": "invalid JSON: " + err.Error()})
 		return
 	}
+
+	// Проверяем, что передан идентификатор
 	if task.ID == "" {
 		writeJSON(w, map[string]string{"error": "id is required"})
 		return
 	}
+	// Заголовок обязателен
 	if task.Title == "" {
 		writeJSON(w, map[string]string{"error": "title is required"})
 		return
 	}
-	if err := prepareDate(&task); err != nil {
+
+	// Нормализуем дату так же, как при добавлении
+	if err := normalizeDate(&task); err != nil {
 		writeJSON(w, map[string]string{"error": err.Error()})
 		return
 	}
+
+	// Выполняем обновление в БД
 	if err := db.UpdateTask(&task); err != nil {
-		writeJSON(w, map[string]string{"error": err.Error()})
+		writeJSON(w, map[string]string{"error": "db error: " + err.Error()})
 		return
 	}
-	writeJSON(w, map[string]interface{}{})
+
+	// Успешный ответ — пустой JSON объекта
+	writeJSON(w, map[string]string{})
 }
