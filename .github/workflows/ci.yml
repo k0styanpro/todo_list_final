@@ -30,4 +30,4 @@ jobs:
           sleep 3
 
       - name: Test
-        run: go test -v ./testsok
+        run: go test -v ./tests
